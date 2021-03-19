@@ -7,7 +7,8 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
-// #include <WiFiClientSecure.h>
+
+#include "time.h"
 
 /////////////////// VARIABLES TO FILL /////////////////
 
@@ -16,11 +17,10 @@ String macAddress = ""; // bluetooth MAC address of key device
 const char* ssid = ""; // ESP32 Wifi SSID (your Wifi network name)
 const char* password = ""; // ESP32 WIFI Password (your Wifi password)
 
-// String eventNAME = "Light_Toggle_ESP32"; // Your IFTTT webhooks url
-String eventNAME = ""; // Your IFTTT webhooks url
+String eventNAME = "Light_Toggle_ESP32"; // Your IFTTT webhooks url
 String webhooksKEY = ""; // Your IFTTT webhooks url
 
-// IFTTT website certificate. If 
+// IFTTT website root certificate. 
 const char* ca_cert = \
 "-----BEGIN CERTIFICATE-----\n" \ 
 "MIIFaTCCBFGgAwIBAgIQAm5h7bYD2v8sd86dSn2WETANBgkqhkiG9w0BAQsFADBG\n" \ 
@@ -56,45 +56,51 @@ const char* ca_cert = \
 
 /////////////////// PROGRAM /////////////////
 
-int scanTime = 9; //In seconds, increase if your device needs more time to be discovered
+int scanTime = 2; //In seconds, increase if your device needs more time to be discovered
+int initScanTime = 25;
 BLEScan* pBLEScan;
-int isHere = -1;
-bool currentScanIsHere = false;
+time_t lastTimeDetected = 0;
+bool isHere = NULL;
 
-const char* host = "maker.ifttt.com";
 const int httpsPort = 443;
 String url = "https://maker.ifttt.com/trigger/" + eventNAME + "/with/key/" + webhooksKEY;
 
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      if(String(macAddress.c_str()) == String(advertisedDevice.getAddress().toString().c_str())){
-        Serial.println("test True");
-        currentScanIsHere = currentScanIsHere ? currentScanIsHere : true;
-      }
-    }
-};
+// time constants
 
-void postWebhooks() {
-  // WIFI setup
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 0;
+const int   daylightOffset_sec = 0;
+
+void connectToWIFI(){
   if(WiFi.status() != WL_CONNECTED){
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
       delay(500);
       Serial.print(".");
     }
+    Serial.println("\nWiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
   }
-  Serial.println("\nWiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+}
+
+void postWebhooks(int state = 2){
+  /*
+    state determines if you want to force the lights in a state:
+      0 is off
+      1 is on
+      2 is toggle
+    
+    currently only toggle is implemented
+  */
+
+  // WIFI setup
+  connectToWIFI();
 
   if(WiFi.status()== WL_CONNECTED){   //Check WiFi connection status
     HTTPClient http;   
     
     http.begin(url);  //Specify destination for HTTP request
-    // http.begin(url, ca_cert);  //Specify destination for HTTP request
-    // http.addHeader("Content-Type", "application/json");             //Specify content-type header
-    
-    // int httpResponseCode = http.POST("{\n}");   //Send the actual POST request
     int httpResponseCode = http.POST("");   //Send the actual POST request
     
     if(httpResponseCode>0){
@@ -118,6 +124,28 @@ void postWebhooks() {
   }
 }
 
+time_t getUnixTime()
+{
+  connectToWIFI();
+  time_t now;
+  time(&now);
+  return now;
+}
+
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+      if(String(macAddress.c_str()) == String(advertisedDevice.getAddress().toString().c_str())){
+        lastTimeDetected = getUnixTime();
+        Serial.println("test True : " + String(lastTimeDetected));
+      }
+    }
+};
+
+void scanBLE(){
+  pBLEScan->clearResults(); // delete results fromBLEScan buffer to release memory
+  BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
+}
+
 int scanID = 0;
 void setup() {
   Serial.begin(115200);
@@ -127,52 +155,44 @@ void setup() {
   Serial.print("connecting to ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  connectToWIFI();
 
-  
+  // time setup
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  getUnixTime(); // init time with ntp
 
   // Bluetooth setup
   Serial.println("Scanning...");
   BLEDevice::init(""); 
-  BLEDevice::setPower(ESP_PWR_LVL_N0, ESP_BLE_PWR_TYPE_SCAN);
+  BLEDevice::setPower(ESP_PWR_LVL_N0, ESP_BLE_PWR_TYPE_SCAN); // set low classic bluetooth power and scan power for BLE
   pBLEScan = BLEDevice::getScan(); //create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(false); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(400);
-  pBLEScan->setWindow(399);  // less or equal setInterval value
+  pBLEScan->setInterval(1000);
+  pBLEScan->setWindow(999);  // less or equal setInterval value
 
-  BLEScanResults initFoundDevices = pBLEScan->start(15, false);
+  BLEScanResults initFoundDevices = pBLEScan->start(initScanTime, false);
   Serial.println("scan ended");
-  isHere = currentScanIsHere;
+  isHere = difftime(getUnixTime(), lastTimeDetected) <= initScanTime + 1; // if detected during setup
   pBLEScan->clearResults();
   Serial.println("isHere setup : " + String(isHere));
 }
 
+int leftTimeInterval = 20; // choose a somewhat big interval if you don't want false negative
+
 void loop() {
-  
-  currentScanIsHere = false; // reset each scan
-  Serial.println("scan started in loop");
-  BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-  Serial.println("scan ended in loop");
-  if(currentScanIsHere && isHere == 0){ // user arrived
-    
+  scanBLE();
+  double interval = difftime( getUnixTime(), lastTimeDetected);
+  if(!isHere && interval <= leftTimeInterval){ // user arrived
     isHere = 1;
     Serial.println("User arrived");
-    Serial.println("currentScanIsHere " + String (currentScanIsHere) + String(" isHere ") + String(isHere));
     postWebhooks();
   }
-  if(!currentScanIsHere && isHere == 1){ // user left
+  if(interval >= leftTimeInterval){ // user left
+    if(isHere){
+      Serial.println("User left");
+      postWebhooks();
+    }
     isHere = 0;
-    Serial.println("User left");
-    Serial.println("currentScanIsHere " + String (currentScanIsHere) + String(" isHere ") + String(isHere));
-    postWebhooks();
   }
-  pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
-  // delay(30*1000);
 }
