@@ -1,3 +1,23 @@
+/*
+MIT License
+Copyright (c) 2021 Nils DEYBACH
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
 #include <Arduino.h>
 
 #include <BLEDevice.h>
@@ -10,7 +30,7 @@
 
 #include "time.h"
 
-/////////////////// VARIABLES TO FILL /////////////////
+/////////////////// VARIABLES TO FILL OR CHANGE /////////////////
 
 String macAddress = ""; // bluetooth MAC address of key device
 
@@ -58,6 +78,7 @@ const char* ca_cert = \
 
 int scanTime = 2; //In seconds, increase if your device needs more time to be discovered
 int initScanTime = 25;
+int leftTimeInterval = 20; // choose a somewhat big interval if you don't want false negative
 BLEScan* pBLEScan;
 time_t lastTimeDetected = 0;
 bool isHere = NULL;
@@ -177,8 +198,6 @@ void setup() {
   pBLEScan->clearResults();
   Serial.println("isHere setup : " + String(isHere));
 }
-
-int leftTimeInterval = 20; // choose a somewhat big interval if you don't want false negative
 
 void loop() {
   scanBLE();
